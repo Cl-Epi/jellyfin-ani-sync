@@ -23,9 +23,9 @@ concurrency:
 
 env:
   UPSTREAM_REPO: vosmiic/jellyfin-ani-sync
-  # Use beta-manifest.json instead to follow upstream beta releases
-  # (e.g. if you run a Jellyfin version that only the beta supports).
-  UPSTREAM_MANIFEST: manifest.json
+  # beta-manifest.json follows upstream beta releases, which are the only
+  # builds for Jellyfin 12. Use manifest.json for Jellyfin 10.11.
+  UPSTREAM_MANIFEST: beta-manifest.json
   MANIFEST: custom-manifest.json
   PLUGIN_DLL: jellyfin-ani-sync.dll
 
