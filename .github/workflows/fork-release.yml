@@ -28,6 +28,8 @@ env:
   UPSTREAM_MANIFEST: beta-manifest.json
   MANIFEST: custom-manifest.json
   PLUGIN_DLL: jellyfin-ani-sync.dll
+  # Bump this whenever fork-fix/apply_fix.py changes, so Jellyfin sees a new version.
+  FORK_REV: 2
 
 jobs:
   release:
@@ -51,7 +53,7 @@ jobs:
           tag=$(jq -r '.sourceUrl' <<<"$latest" | sed -E 's#.*/download/([^/]+)/.*#\1#')
 
           IFS=. read -r a b c d <<<"$up_version"
-          my_version="$a.$b.$c.$((d + 1))"
+          my_version="$a.$b.$c.$((d * 100 + FORK_REV))"
 
           build=true
           if [ -f "$MANIFEST" ] && jq -e --arg v "$my_version" '.[0].versions[] | select(.version == $v)' "$MANIFEST" >/dev/null; then
