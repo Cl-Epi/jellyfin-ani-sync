@@ -15,11 +15,14 @@ import sys
 
 MARKER = "ShokoSingleSeasonAniDbFix"
 TARGET = "jellyfin-ani-sync/Helpers/AnimeListHelpers.cs"
+TARGET_STATUS = "jellyfin-ani-sync/UpdateProviderStatus.cs"
+ANILIST_CHECK = 'episode.Series.ProviderIds.ContainsKey("AniList") &&'
+ANILIST_GUARD = 'episode.Series.ProviderIds.ContainsKey("AniList") && jellyfin_ani_sync.Helpers.AnimeListHelpers.ForkSingleSeasonSeriesAniDb(episode) == null &&'
 SIGNATURE = "public static async Task<(int? aniDbId, int? episodeOffset)> GetAniDbId("
 
 HELPER = '''
         // [fork fix] Shoko single-season AniDB fix. See fork-fix/apply_fix.py.
-        internal static int? ShokoSingleSeasonAniDbFix(ILogger logger, Video video) {
+        internal static int? ForkSingleSeasonSeriesAniDb(Video video) {
             if (video is not Episode forkEp || forkEp.Series == null || forkEp.Season == null) return null;
             if (forkEp.Season.IndexNumber != 1) return null;
             if (forkEp.Series.Children.OfType<Season>().Count(s => s.IndexNumber is > 0) != 1) return null;
@@ -27,12 +30,17 @@ HELPER = '''
                 forkEp.Season.ProviderIds.Keys.Any(k => string.Equals(k, "Anidb", StringComparison.OrdinalIgnoreCase))) return null;
             if (forkEp.Series.ProviderIds == null) return null;
             foreach (var forkKv in forkEp.Series.ProviderIds) {
-                if (string.Equals(forkKv.Key, "Anidb", StringComparison.OrdinalIgnoreCase) && int.TryParse(forkKv.Value, out var forkId)) {
-                    logger.LogInformation($"(Anidb) [fork fix] Series {forkEp.Series.Name} has a single season and its own AniDB ID ({forkId}); using it directly with no episode offset");
-                    return forkId;
-                }
+                if (string.Equals(forkKv.Key, "Anidb", StringComparison.OrdinalIgnoreCase) && int.TryParse(forkKv.Value, out var forkId)) return forkId;
             }
             return null;
+        }
+
+        internal static int? ShokoSingleSeasonAniDbFix(ILogger logger, Video video) {
+            var forkId = ForkSingleSeasonSeriesAniDb(video);
+            if (forkId != null) {
+                logger.LogInformation($"(Anidb) [fork fix] Series {(video as Episode)?.Series?.Name} has a single season and its own AniDB ID ({forkId}); using it directly with no episode offset");
+            }
+            return forkId;
         }
 
 '''
@@ -64,8 +72,19 @@ def main() -> int:
     src = src[:brace + 1] + CALL + src[brace + 1:]
     src = src[:line_start] + HELPER.lstrip("\n") + src[line_start:]
 
+    # Do not let a series-level AniList ID (which may point at season 1)
+    # short-circuit the AniDB lookup for such single-season series.
+    status_path = pathlib.Path(sys.argv[1]) / TARGET_STATUS
+    status_src = status_path.read_text(encoding="utf-8")
+    count = status_src.count(ANILIST_CHECK)
+    if count < 1:
+        print(f"ERROR: AniList shortcut not found in {TARGET_STATUS}.")
+        return 1
+    status_src = status_src.replace(ANILIST_CHECK, ANILIST_GUARD)
+
     path.write_text(src, encoding="utf-8")
-    print("Fix applied.")
+    status_path.write_text(status_src, encoding="utf-8")
+    print(f"Fix applied (AniList shortcut guarded in {count} place(s)).")
     return 0
 
 
