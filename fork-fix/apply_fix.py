@@ -13,40 +13,37 @@ AniDB ID directly in that situation.
 import pathlib
 import sys
 
-MARKER = "ShokoSingleSeasonAniDbFix"
+MARKER = "ForkSingleSeasonSeriesAniDb"
 TARGET = "jellyfin-ani-sync/Helpers/AnimeListHelpers.cs"
 TARGET_STATUS = "jellyfin-ani-sync/UpdateProviderStatus.cs"
 ANILIST_CHECK = 'episode.Series.ProviderIds.ContainsKey("AniList") &&'
-ANILIST_GUARD = 'episode.Series.ProviderIds.ContainsKey("AniList") && jellyfin_ani_sync.Helpers.AnimeListHelpers.ForkSingleSeasonSeriesAniDb(episode) == null &&'
+ANILIST_GUARD = 'episode.Series.ProviderIds.ContainsKey("AniList") && jellyfin_ani_sync.Helpers.AnimeListHelpers.ForkSingleSeasonSeriesAniDb(_logger, episode) == null &&'
 SIGNATURE = "public static async Task<(int? aniDbId, int? episodeOffset)> GetAniDbId("
 
 HELPER = '''
         // [fork fix] Shoko single-season AniDB fix. See fork-fix/apply_fix.py.
-        internal static int? ForkSingleSeasonSeriesAniDb(Video video) {
-            if (video is not Episode forkEp || forkEp.Series == null || forkEp.Season == null) return null;
-            if (forkEp.Season.IndexNumber != 1) return null;
-            if (forkEp.Series.Children.OfType<Season>().Count(s => s.IndexNumber is > 0) != 1) return null;
-            if (forkEp.Season.ProviderIds != null &&
-                forkEp.Season.ProviderIds.Keys.Any(k => string.Equals(k, "Anidb", StringComparison.OrdinalIgnoreCase))) return null;
-            if (forkEp.Series.ProviderIds == null) return null;
-            foreach (var forkKv in forkEp.Series.ProviderIds) {
+        private static int? ForkGetAniDb(Dictionary<string, string> ids) {
+            if (ids == null) return null;
+            foreach (var forkKv in ids) {
                 if (string.Equals(forkKv.Key, "Anidb", StringComparison.OrdinalIgnoreCase) && int.TryParse(forkKv.Value, out var forkId)) return forkId;
             }
             return null;
         }
 
-        internal static int? ShokoSingleSeasonAniDbFix(ILogger logger, Video video) {
-            var forkId = ForkSingleSeasonSeriesAniDb(video);
-            if (forkId != null) {
-                logger.LogInformation($"(Anidb) [fork fix] Series {(video as Episode)?.Series?.Name} has a single season and its own AniDB ID ({forkId}); using it directly with no episode offset");
-            }
-            return forkId;
+        internal static int? ForkSingleSeasonSeriesAniDb(ILogger logger, Video video) {
+            if (video is not Episode forkEp || forkEp.Series == null || forkEp.Season == null) return null;
+            int? seasonId = ForkGetAniDb(forkEp.Season.ProviderIds);
+            int? seriesId = ForkGetAniDb(forkEp.Series.ProviderIds);
+            int seasonCount = forkEp.Series.Children.OfType<Season>().Count(s => s.IndexNumber is > 0);
+            int? result = forkEp.Season.IndexNumber == 1 && seasonCount <= 1 ? (seasonId ?? seriesId) : null;
+            logger?.LogInformation($"(Anidb) [fork fix] {forkEp.Series.Name}: season index {forkEp.Season.IndexNumber}, seasons {seasonCount}, season AniDB {seasonId?.ToString() ?? "-"}, series AniDB {seriesId?.ToString() ?? "-"} -> {(result != null ? "using AniDB " + result : "no override")}");
+            return result;
         }
 
 '''
 
 CALL = '''
-            { var forkFixId = ShokoSingleSeasonAniDbFix(logger, video); if (forkFixId != null) return (forkFixId, null); }'''
+            { var forkFixId = ForkSingleSeasonSeriesAniDb(logger, video); if (forkFixId != null) return (forkFixId, null); }'''
 
 
 def main() -> int:
