@@ -1,0 +1,20 @@
+[
+  {
+    "category": "General",
+    "guid": "c78f11cf-93e6-4423-8c42-d2c255b70e47",
+    "name": "Ani-Sync",
+    "description": "Synchronize anime watch status between Jellyfin and anime tracking sites.",
+    "owner": "Cl-Epi",
+    "overview": "Synchronize anime watch status",
+    "versions": [
+      {
+        "checksum": "e2145e5d3ca0f1987d207f822e265f5e",
+        "changelog": "Fork build of upstream 4.4.0.0 (v4.4) with the Shoko single-season AniDB fix. Upstream: 1. Rate limiting improvements 2. Added support for custom Shikimori domains",
+        "targetAbi": "10.11.11.0",
+        "sourceUrl": "https://github.com/Cl-Epi/jellyfin-ani-sync/releases/download/fork-v4.4.0.1/ani-sync_4.4.0.1.zip",
+        "timestamp": "2026-10-15T09:34:56Z",
+        "version": "4.4.0.1"
+      }
+    ]
+  }
+]
