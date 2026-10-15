@@ -1,0 +1,166 @@
+name: Fork release
+
+# Builds the upstream plugin with the Shoko fix applied whenever upstream
+# publishes a new version, and publishes it through this fork's own
+# Jellyfin plugin repository (custom-manifest.json).
+
+on:
+  schedule:
+    - cron: '17 3 * * *'   # daily
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Rebuild even if this version already exists'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-release
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: vosmiic/jellyfin-ani-sync
+  # Use beta-manifest.json instead to follow upstream beta releases
+  # (e.g. if you run a Jellyfin version that only the beta supports).
+  UPSTREAM_MANIFEST: manifest.json
+  MANIFEST: custom-manifest.json
+  PLUGIN_DLL: jellyfin-ani-sync.dll
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this fork
+        uses: actions/checkout@v4
+
+      - name: Check upstream for a new version
+        id: check
+        env:
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/${UPSTREAM_REPO}/master/${UPSTREAM_MANIFEST}" -o /tmp/upstream.json
+
+          latest=$(jq -c '.[0].versions | max_by(.version | split(".") | map(tonumber))' /tmp/upstream.json)
+          up_version=$(jq -r '.version' <<<"$latest")
+          abi=$(jq -r '.targetAbi' <<<"$latest")
+          up_changelog=$(jq -r '.changelog' <<<"$latest")
+          tag=$(jq -r '.sourceUrl' <<<"$latest" | sed -E 's#.*/download/([^/]+)/.*#\1#')
+
+          IFS=. read -r a b c d <<<"$up_version"
+          my_version="$a.$b.$c.$((d + 1))"
+
+          build=true
+          if [ -f "$MANIFEST" ] && jq -e --arg v "$my_version" '.[0].versions[] | select(.version == $v)' "$MANIFEST" >/dev/null; then
+            build=false
+          fi
+          if [ "${FORCE:-false}" = "true" ]; then build=true; fi
+
+          echo "Upstream $up_version (tag $tag, ABI $abi) -> fork $my_version, build=$build"
+          {
+            echo "build=$build"
+            echo "tag=$tag"
+            echo "abi=$abi"
+            echo "up_version=$up_version"
+            echo "my_version=$my_version"
+            echo "up_changelog<<EOF_CHANGELOG"
+            echo "$up_changelog"
+            echo "EOF_CHANGELOG"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out upstream source
+        if: steps.check.outputs.build == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ steps.check.outputs.tag }}
+          path: upstream
+
+      - name: Set up .NET
+        if: steps.check.outputs.build == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+
+      - name: Apply fix
+        if: steps.check.outputs.build == 'true'
+        run: python3 fork-fix/apply_fix.py upstream
+
+      - name: Build
+        if: steps.check.outputs.build == 'true'
+        working-directory: upstream/jellyfin-ani-sync
+        env:
+          V: ${{ steps.check.outputs.my_version }}
+        run: |
+          dotnet publish jellyfin-ani-sync.csproj --configuration Release --output "$GITHUB_WORKSPACE/out" \
+            -p:Version="$V" -p:AssemblyVersion="$V" -p:FileVersion="$V"
+
+      - name: Package, release and update manifest
+        if: steps.check.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.check.outputs.my_version }}
+          UP_V: ${{ steps.check.outputs.up_version }}
+          UP_TAG: ${{ steps.check.outputs.tag }}
+          ABI: ${{ steps.check.outputs.abi }}
+          UP_CHANGELOG: ${{ steps.check.outputs.up_changelog }}
+        run: |
+          set -euo pipefail
+          ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          release_tag="fork-v$V"
+          zip_name="ani-sync_${V}.zip"
+          changelog="Fork build of upstream $UP_V ($UP_TAG) with the Shoko single-season AniDB fix. Upstream: $UP_CHANGELOG"
+
+          # Plugin package: the DLL plus meta.json.
+          mkdir -p pkg
+          cp "out/$PLUGIN_DLL" pkg/
+          jq '.[0]' /tmp/upstream.json | jq \
+            --arg owner "${GITHUB_REPOSITORY_OWNER}" --arg abi "$ABI" --arg v "$V" \
+            --arg ts "$ts" --arg cl "$changelog" \
+            '{category, description, guid, name, overview,
+              owner: $owner, changelog: $cl, targetAbi: $abi, timestamp: $ts, version: $v,
+              status: "Active", autoUpdate: true, imagePath: "", assemblies: []}' > pkg/meta.json
+          (cd pkg && zip -q "../$zip_name" ./*)
+          checksum=$(md5sum "$zip_name" | cut -d' ' -f1)
+
+          # GitHub release holding the zip.
+          if gh release view "$release_tag" >/dev/null 2>&1; then
+            gh release delete "$release_tag" --yes --cleanup-tag
+          fi
+          gh release create "$release_tag" "$zip_name" --title "Ani-Sync $V (fork)" --notes "$changelog"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${release_tag}/${zip_name}"
+
+          # Plugin repository manifest for Jellyfin.
+          if [ ! -f "$MANIFEST" ]; then
+            jq --arg owner "${GITHUB_REPOSITORY_OWNER}" '[.[0] | .owner = $owner | .versions = []]' /tmp/upstream.json > "$MANIFEST"
+          fi
+          jq --arg cs "$checksum" --arg cl "$changelog" --arg abi "$ABI" --arg url "$url" --arg ts "$ts" --arg v "$V" \
+            '.[0].versions = ([{checksum: $cs, changelog: $cl, targetAbi: $abi, sourceUrl: $url, timestamp: $ts, version: $v}]
+                              + [.[0].versions[] | select(.version != $v)])[:5]' "$MANIFEST" > /tmp/manifest.json
+          mv /tmp/manifest.json "$MANIFEST"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$MANIFEST"
+          git commit -m "Release fork version $V (upstream $UP_V)"
+          git push
+
+      - name: Keep scheduled runs alive
+        # GitHub pauses scheduled workflows after 60 days without repository activity.
+        run: |
+          set -euo pipefail
+          git pull --ff-only
+          last=$(git log -1 --format=%ct)
+          if [ $(( $(date +%s) - last )) -gt $(( 40 * 86400 )) ]; then
+            date -u +%Y-%m-%dT%H:%M:%SZ > .github/keepalive
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .github/keepalive
+            git commit -m "Keep scheduled workflow alive"
+            git push
+          fi
