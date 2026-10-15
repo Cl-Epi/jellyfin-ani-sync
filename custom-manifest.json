@@ -8,6 +8,14 @@
     "overview": "Synchronize anime watch status",
     "versions": [
       {
+        "checksum": "cee76d901482a99f845546a918cb5c0c",
+        "changelog": "Fork build of upstream 4.6.0.0 (v4.6b) with the Shoko single-season AniDB fix. Upstream: 1. Beta build for Jellyfin version 12.0.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/Cl-Epi/jellyfin-ani-sync/releases/download/fork-v4.6.0.2/ani-sync_4.6.0.2.zip",
+        "timestamp": "2026-10-15T10:08:19Z",
+        "version": "4.6.0.2"
+      },
+      {
         "checksum": "c7736350d7d5f9b2c7b59cf11e9ab49f",
         "changelog": "Fork build of upstream 4.6.0.0 (v4.6b) with the Shoko single-season AniDB fix. Upstream: 1. Beta build for Jellyfin version 12.0.",
         "targetAbi": "12.0.0.0",
