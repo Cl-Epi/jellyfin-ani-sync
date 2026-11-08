@@ -8,6 +8,14 @@
     "overview": "Synchronize anime watch status",
     "versions": [
       {
+        "checksum": "c53a0a8903597d9722a41caa03c77ec7",
+        "changelog": "Fork build of upstream 4.7.0.0 (v4.7) with the Shoko single-season AniDB fix. Upstream: 1. Strip trailing slash from custom ARM base URL 2. Shoko Server addition, Fix AniDB resolution for sequels, split cours and titlefallbacks 3. Update AniList anime status from 'Plan to watch' to 'Watching' 4. Only check rewatch completed if anime is not on plan to watch list 5. Use shikimori.io for authenticated API calls 6. Sync Shikimori rewatch progress",
+        "targetAbi": "12.4.0.0",
+        "sourceUrl": "https://github.com/Cl-Epi/jellyfin-ani-sync/releases/download/fork-v4.7.0.2/ani-sync_4.7.0.2.zip",
+        "timestamp": "2026-11-08T10:04:00Z",
+        "version": "4.7.0.2"
+      },
+      {
         "checksum": "cee76d901482a99f845546a918cb5c0c",
         "changelog": "Fork build of upstream 4.6.0.0 (v4.6b) with the Shoko single-season AniDB fix. Upstream: 1. Beta build for Jellyfin version 12.0.",
         "targetAbi": "12.0.0.0",
