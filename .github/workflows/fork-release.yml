@@ -23,9 +23,11 @@ concurrency:
 
 env:
   UPSTREAM_REPO: vosmiic/jellyfin-ani-sync
-  # beta-manifest.json follows upstream beta releases, which are the only
-  # builds for Jellyfin 12. Use manifest.json for Jellyfin 10.11.
-  UPSTREAM_MANIFEST: beta-manifest.json
+  # Upstream publishes Jellyfin 12 builds in both manifest.json (stable, e.g. 4.7)
+  # and beta-manifest.json (betas, e.g. 4.6b). Both are read and the newest
+  # version whose targetAbi major is at least MIN_ABI_MAJOR wins.
+  UPSTREAM_MANIFESTS: manifest.json beta-manifest.json
+  MIN_ABI_MAJOR: 12
   MANIFEST: custom-manifest.json
   PLUGIN_DLL: jellyfin-ani-sync.dll
   # Bump this whenever fork-fix/apply_fix.py changes, so Jellyfin sees a new version.
@@ -44,9 +46,22 @@ jobs:
           FORCE: ${{ inputs.force }}
         run: |
           set -euo pipefail
-          curl -fsSL "https://raw.githubusercontent.com/${UPSTREAM_REPO}/master/${UPSTREAM_MANIFEST}" -o /tmp/upstream.json
+          files=()
+          for m in $UPSTREAM_MANIFESTS; do
+            curl -fsSL "https://raw.githubusercontent.com/${UPSTREAM_REPO}/master/${m}" -o "/tmp/upstream-${m}"
+            files+=("/tmp/upstream-${m}")
+          done
+          # Package metadata (name, guid, description...) comes from the first manifest.
+          cp "${files[0]}" /tmp/upstream.json
 
-          latest=$(jq -c '.[0].versions | max_by(.version | split(".") | map(tonumber))' /tmp/upstream.json)
+          latest=$(jq -cs --argjson min "$MIN_ABI_MAJOR" '
+            [.[][0].versions[] | select(((.targetAbi // "0") | split(".")[0] | tonumber) >= $min)]
+            | unique_by(.version)
+            | max_by(.version | split(".") | map(tonumber))' "${files[@]}")
+          if [ -z "$latest" ] || [ "$latest" = "null" ]; then
+            echo "No upstream version with targetAbi >= $MIN_ABI_MAJOR found" >&2
+            exit 1
+          fi
           up_version=$(jq -r '.version' <<<"$latest")
           abi=$(jq -r '.targetAbi' <<<"$latest")
           up_changelog=$(jq -r '.changelog' <<<"$latest")
